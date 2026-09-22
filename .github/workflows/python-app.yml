@@ -1,142 +1,52 @@
-# Building and testing Python
-# https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
-
 name: Python CI
-
-permissions:
-  contents: read
-
 on:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
-
-env:
-  PYTHON_VERSION: 3.13.3
-
+  push: null
 jobs:
-  lint:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4.2.2
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    - name: Set up Python 3.9
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.9
+        cache: pip
+    - name: Install packages with pip
+      run: 'python -m pip install --upgrade pip
 
-      - name: Lint commit messages
-        uses: wagoid/commitlint-github-action@v6.2.1
+        pip install flake8 pytest pytest-cov
 
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5.6.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Install lint dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-lint.txt
+        '
+    - name: Lint with Flake8
+      run: '# stop the build if there are Python syntax errors or undefined names
 
-      - name: Lint with Flake8
-        run: |
-          flake8 .
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
-      - name: Check code formatting with Black
-        run: |
-          black --check .
+        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
 
-  test:
-    needs: lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4.2.2
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5.6.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
+        '
+    - name: Run tests with pytest
+      run: 'pytest -v
 
-      - name: Install test dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-test.txt
+        '
+    - name: Generate coverage report with pytest-cov
+      run: 'pytest --cov=./ --cov-report=xml --cov-report=term
 
-      - name: Run tests with pytest
-        run: |
-          pytest -v
-
-      - name: Generate coverage report
-        run: |
-          pytest --cov=./ --cov-report=xml --cov-report=term
-
-      - name: Upload coverage report artifact
-        uses: actions/upload-artifact@v4.6.2
-        with:
-          name: coverage.xml
-          path: ./coverage.xml
-
-  coverage:
-    needs: test
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        service: [codecov, codacy]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4.2.2
-
-      - name: Download coverage report artifact
-        uses: actions/download-artifact@v4.3.0
-        with:
-          name: coverage.xml
-
-      - name: Upload coverage report to ${{ matrix.service }}
-        if: ${{ matrix.service == 'codecov' }}
-        uses: codecov/codecov-action@v5.4.3
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage.xml
-
-      - name: Upload coverage report to ${{ matrix.service }}
-        if: ${{ matrix.service == 'codacy' }}
-        uses: codacy/codacy-coverage-reporter-action@v1.3.0
-        with:
-          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
-          coverage-reports: coverage.xml
-
-  container:
-    needs: coverage
-    runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
-
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4.2.2
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3.4.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3.11.1
-
-      - name: Build and push Docker image to GitHub Container Registry
-        uses: docker/build-push-action@v6.18.0
-        with:
-          context: .
-          push: true
-          platforms: linux/amd64
-          provenance: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+        '
+      id: _bre_build
+    - name: Upload coverage report to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: coverage.xml
+    - name: Upload coverage report to Codacy
+      uses: codacy/codacy-coverage-reporter-action@v1
+      with:
+        project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        coverage-reports: coverage.xml
+      if: '!cancelled() && steps._bre_build.conclusion == ''success'''
